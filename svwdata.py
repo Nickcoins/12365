@@ -284,6 +284,7 @@ group by 日期"""
         self.excute_sql(sql, show_date)
 
     def show_powertrain_complain(self, show_date):
+        """"""
 
     def print_menu(self):
         """显示目录"""
