@@ -253,7 +253,8 @@ class CQ(object):
         """1.动力总成抱怨数量"""
         sql = """select f.车企合并,
        count(if(id1.name='发动机',f.抱怨编号,null)) as 发动机,
-       count(if(id1.name='变速器',f.抱怨编号,null)) as 变速器
+       count(if(id1.name='变速器',f.抱怨编号,null)) as 变速器,
+       count(f.抱怨编号) as 总计
 from
     (select
            *,
@@ -268,7 +269,8 @@ from
     from `12365` as t ) as f
 inner join id1 on id1.id=f.抱怨分类
 where id1.name regexp '发动机|变速器' and f.车企合并 regexp '上汽大众|上汽通用|广汽丰田|东风日产|广汽本田|一汽丰田|上汽集团|一汽-大众|东风本田' and f.`抱怨日期`>= %s AND f.`抱怨日期`<= %s
-group by f.车企合并"""
+group by f.车企合并
+order by 总计 desc"""
         self.excute_sql(sql, show_date)
 
     def show_svwcomplain_trend(self, show_date):
@@ -283,8 +285,65 @@ where t.车企 regexp '上汽大众|斯柯达' and t.`抱怨日期`>= %s AND t.`
 group by 日期"""
         self.excute_sql(sql, show_date)
 
-    def show_powertrain_complain(self, show_date):
-        """"""
+    def show_svwengine_complain(self, show_date):
+        """3.ea888/ea211 趋势"""
+        sql = """select
+    date_format(t.抱怨日期,'%%Y%%m') as 日期,
+       count(if(t.发动机='EA888',t.抱怨编号,null)) as EA888,
+       count(if(t.发动机='EA211',t.抱怨编号,null)) as EA211
+from
+     (select * ,
+             case  when 车辆配置 regexp '1\\.8|2\\.0|300|320|330|380' then 'EA888'
+                 when 车辆配置 regexp 'PHEV' then 'PHEV'
+                 else 'EA211' end as `发动机`
+     from `12365`as f where 车企 regexp '上汽大众|斯柯达' )as t
+where t.`抱怨日期`>= %s AND t.`抱怨日期`<= %s
+group by 日期
+"""
+        self.excute_sql(sql, show_date)
+
+    def show_powertrain_top20(self, show_date):
+        """4.动力总成top20问题"""
+        sql = """select
+f.车企,f.车型,id1.name as 抱怨分类,id2.name as 抱怨细节,count(f.抱怨编号) as 数量
+from
+     (select
+           *,
+           case
+               when t.车企='上汽斯柯达' then '上汽大众'
+               when t.车企 regexp '上汽通用' then '上汽通用'
+               when t.车企='东风英菲尼迪' then '东风日产'
+               when t.车企='广汽讴歌' then '广汽本田'
+               when t.车企='一汽-大众奥迪' then '一汽-大众'
+                   else t.车企
+                       end as 车企合并
+    from `12365` as t ) as f
+inner join id1 on id1.id=f.抱怨分类
+inner join id2 on id2.id=f.抱怨细节
+where  f.车企合并 regexp '上汽大众|上汽通用|广汽丰田|东风日产|广汽本田|一汽丰田|上汽集团|一汽-大众|东风本田'
+  and f.`抱怨日期`>= %s AND f.`抱怨日期`<= %s
+  and id1.name = %s
+group by f.车企, f.车型, id1.name, id2.name
+order by 数量 desc limit 20"""
+        self.excute_sql(sql, show_date)
+
+    def show_ea888_top20(self, show_date):
+        """ea888 top20 抱怨"""
+        sql = """select id2.name as 抱怨细节,count(t.抱怨编号) as 数量
+from
+    (select * ,
+                 case  when 车辆配置 regexp '1\\.8|2\\.0|300|320|330|380' then 'EA888'
+                     when 车辆配置 regexp 'PHEV' then 'PHEV'
+                     else 'EA211' end as `发动机`
+         from `12365`as f where 车企 regexp '上汽大众|斯柯达' )as t
+inner join id1 on id1.id=t.抱怨分类
+inner join id2 on id2.id=t.抱怨细节
+where id1.name='发动机'
+    and t.`抱怨日期`>= %s AND t.`抱怨日期`<= %s
+    and t.发动机= %s
+group by id2.name
+order by 数量 desc limit 20"""
+        self.excute_sql(sql, show_date)
 
     def print_menu(self):
         """显示目录"""
@@ -296,12 +355,17 @@ group by 日期"""
         self.cursor.execute(sql_date)
         date = self.cursor.fetchall()
         print("数据库总量：", num[0][0], "数据库最新日期：", date[0][0])
-        print("1.动力总成投诉对比")
-        print("2.上汽大众投诉趋势")
+        print("1.车企数据TOP20")
+        print("2.车型数据TOP20")
         print("3.抱怨数据TOP20")
         print("4.上汽大众车型数据")
         print("5.动力总成系统数据")
-        print("6.退出")
+        print("6.动力总成抱怨对比")
+        print("7.动力总成抱怨TOP20")
+        print("8.SVW抱怨趋势")
+        print("9.EA888/EA211发动机趋势")
+        print("10.EA888/EA211抱怨TOP20")
+        print("11.退出")
         return input("请输入选择的序号:")
 
     def run(self):
@@ -312,11 +376,11 @@ group by 日期"""
             if num == "1":
                 # 查询车企数据
                 show_date = self.show_date()
-                self.show_powertrain_compare(show_date)
+                self.show_all_brand(show_date)
             elif num == "2":
                 # 查询车辆数据
                 show_date = self.show_date()
-                self.show_svwcomplain_trend(show_date)
+                self.show_all_car(show_date)
             elif num == "3":
                 # 查询抱怨分类数据
                 show_date = self.show_date()
@@ -362,6 +426,46 @@ group by 日期"""
                 else:
                     print("输入有误请重新输入.....")
             elif num == "6":
+                # 查询动力总成对比
+                show_date = self.show_date()
+                self.show_powertrain_compare(show_date)
+            elif num == "7":
+                # 查询动力总成top20
+                show_date = self.show_date()
+                print('-----选择发动机/变速箱-----')
+                print("1.发动机")
+                print("2.变速箱")
+                print("3.返回")
+                num_power = input("请输入选择的序号:")
+                if num_power == "1":
+                    show_date.extend(["发动机"])
+                    self.show_powertrain_top20(show_date)
+                elif num_power == "2":
+                    show_date.extend(["变速器"])
+                    self.show_powertrain_top20(show_date)
+            elif num == "8":
+                # 查询SVW动力总成趋势
+                show_date = self.show_date()
+                self.show_svwcomplain_trend(show_date)
+            elif num == "9":
+                # 查询EA888/EA211趋势
+                show_date = self.show_date()
+                self.show_svwengine_complain(show_date)
+            elif num == "10":
+                # 查询EA888/EA211top20
+                show_date = self.show_date()
+                print('-----选择EA888/EA211-----')
+                print("1.EA888")
+                print("2.EA211")
+                print("3.返回")
+                num_power = input("请输入选择的序号:")
+                if num_power == "1":
+                    show_date.extend(["EA888"])
+                    self.show_ea888_top20(show_date)
+                elif num_power == "2":
+                    show_date.extend(["EA211"])
+                    self.show_ea888_top20(show_date)
+            elif num == "11":
                 break
             else:
                 print("输入有误请重新输入.....")
