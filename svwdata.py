@@ -272,6 +272,7 @@ where id1.name regexp '发动机|变速器' and f.车企合并 regexp '上汽大
 group by f.车企合并
 order by 总计 desc"""
         self.excute_sql(sql, show_date)
+        return sql
 
     def show_svwcomplain_trend(self, show_date):
         """2.动力总成每月数据"""
@@ -284,6 +285,7 @@ inner join id1 on id1.id=t.抱怨分类
 where t.车企 regexp '上汽大众|斯柯达' and t.`抱怨日期`>= %s AND t.`抱怨日期`<= %s
 group by 日期"""
         self.excute_sql(sql, show_date)
+        return sql
 
     def show_svwengine_complain(self, show_date):
         """3.ea888/ea211 趋势"""
@@ -297,10 +299,12 @@ from
                  when 车辆配置 regexp 'PHEV' then 'PHEV'
                  else 'EA211' end as `发动机`
      from `12365`as f where 车企 regexp '上汽大众|斯柯达' )as t
-where t.`抱怨日期`>= %s AND t.`抱怨日期`<= %s
+inner join id1 on id1.id=t.抱怨分类 
+where t.`抱怨日期`>= %s AND t.`抱怨日期`<= %s and id1.name='发动机'
 group by 日期
 """
         self.excute_sql(sql, show_date)
+        return sql
 
     def show_powertrain_top20(self, show_date):
         """4.动力总成top20问题"""
@@ -322,10 +326,11 @@ inner join id1 on id1.id=f.抱怨分类
 inner join id2 on id2.id=f.抱怨细节
 where  f.车企合并 regexp '上汽大众|上汽通用|广汽丰田|东风日产|广汽本田|一汽丰田|上汽集团|一汽-大众|东风本田'
   and f.`抱怨日期`>= %s AND f.`抱怨日期`<= %s
-  and id1.name = %s
+  and id1.name regexp '发动机|变速器'
 group by f.车企, f.车型, id1.name, id2.name
 order by 数量 desc limit 20"""
         self.excute_sql(sql, show_date)
+        return sql
 
     def show_ea888_top20(self, show_date):
         """ea888 top20 抱怨"""
@@ -340,10 +345,57 @@ inner join id1 on id1.id=t.抱怨分类
 inner join id2 on id2.id=t.抱怨细节
 where id1.name='发动机'
     and t.`抱怨日期`>= %s AND t.`抱怨日期`<= %s
-    and t.发动机= %s
+    and t.发动机= 'EA888'
 group by id2.name
 order by 数量 desc limit 20"""
         self.excute_sql(sql, show_date)
+        return sql
+
+    def show_ea211_top20(self, show_date):
+        """ea888 top20 抱怨"""
+        sql = """select id2.name as 抱怨细节,count(t.抱怨编号) as 数量
+from
+    (select * ,
+                 case  when 车辆配置 regexp '1\\.8|2\\.0|300|320|330|380' then 'EA888'
+                     when 车辆配置 regexp 'PHEV' then 'PHEV'
+                     else 'EA211' end as `发动机`
+         from `12365`as f where 车企 regexp '上汽大众|斯柯达' )as t
+inner join id1 on id1.id=t.抱怨分类
+inner join id2 on id2.id=t.抱怨细节
+where id1.name='发动机'
+    and t.`抱怨日期`>= %s AND t.`抱怨日期`<= %s
+    and t.发动机= 'EA211'
+group by id2.name
+order by 数量 desc limit 20"""
+        self.excute_sql(sql, show_date)
+        return sql
+
+    def save_report(self, show_date):
+        """保存excel文件"""
+
+        name = input("请输入保存文件名称：")
+        file = openpyxl.Workbook()
+        sheet_list = ['动力总成总体比较', '动力总成top20', '动力总成按月趋势', '发动机按月趋势', 'EA888 top20 问题', 'EA211 top20 问题']
+        table_list = [self.show_powertrain_compare(show_date), self.show_powertrain_top20(show_date), self.show_svwcomplain_trend(show_date), self.show_svwengine_complain(show_date), self.show_ea888_top20(show_date), self.show_ea211_top20(show_date)]
+        for n in range(len(sheet_list)):
+            sheet_name = file.create_sheet(sheet_list[n])
+            sql = table_list[n]
+            self.cursor.execute(sql, show_date)
+            cols = self.cursor.description
+            col = []
+            for i in cols:
+                col.append(i[0])  # 获取表格列名
+            table = self.cursor.fetchall()
+            for i in range(len(col)):
+                sheet_name.cell(row=1, column=i+1, value=col[i])
+            for i in range(len(table)):
+                for j in range(len(table[i])):
+                    sheet_name.cell(row=i + 2, column=j + 1, value=table[i][j])
+        file.save(name + ".xlsx")
+        print("保存成功")
+        input("输入任意键继续：")
+
+
 
     def print_menu(self):
         """显示目录"""
@@ -365,7 +417,8 @@ order by 数量 desc limit 20"""
         print("8.SVW抱怨趋势")
         print("9.EA888/EA211发动机趋势")
         print("10.EA888/EA211抱怨TOP20")
-        print("11.退出")
+        print("11.保存报告")
+        print("12.退出")
         return input("请输入选择的序号:")
 
     def run(self):
@@ -465,7 +518,10 @@ order by 数量 desc limit 20"""
                 elif num_power == "2":
                     show_date.extend(["EA211"])
                     self.show_ea888_top20(show_date)
-            elif num == "11":
+            elif num == '11':
+                show_date = self.show_date()
+                self.save_report(show_date)
+            elif num == "12":
                 break
             else:
                 print("输入有误请重新输入.....")
